@@ -1,0 +1,3 @@
+#!/bin/sh
+# Launcher for the unofficial Vibe Desktop package.
+exec /opt/unofficial-vibe-desktop/vibe --ozone-platform-hint=auto "$@"

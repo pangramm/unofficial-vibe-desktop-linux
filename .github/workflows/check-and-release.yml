@@ -115,6 +115,7 @@ jobs:
         id: build
         env:
           STRICT_BACKEND: ${{ inputs.allow_backend_fallback && '0' || '1' }}
+          PACKAGES: "1"
           UPDATE_INFO: gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Vibe-*x86_64.AppImage.zsync
         run: |
           set +e
@@ -142,7 +143,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: steps.build.outputs.skipped == 'false'
         with:
-          name: appimage
+          name: packages
           path: |
             dist/*
             release-notes-upstream.md
@@ -152,15 +153,48 @@ jobs:
     needs: [check, build]
     if: needs.build.outputs.skipped == 'false'
     runs-on: ubuntu-24.04
+    outputs:
+      pages: ${{ steps.repos.outputs.pages }}
     env:
       VERSION: ${{ needs.check.outputs.version }}
       BACKEND: ${{ needs.build.outputs.backend }}
       BUNDLED: ${{ needs.build.outputs.bundled_backend }}
       GH_TOKEN: ${{ github.token }}
+      SIGNING_KEY: ${{ secrets.PACKAGING_GPG_KEY }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
       - uses: actions/download-artifact@v4
         with:
-          name: appimage
+          name: packages
+
+      - name: Import signing key
+        id: key
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::warning::PACKAGING_GPG_KEY secret is not set; publishing the AppImage only (no apt/dnf repositories)."
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            rm -f dist/*.deb dist/*.rpm
+            exit 0
+          fi
+          printf '%s\n' "$SIGNING_KEY" | gpg --batch --import
+          echo "have=true" >> "$GITHUB_OUTPUT"
+
+      - name: Sign packages and build apt/dnf repositories
+        id: repos
+        if: steps.key.outputs.have == 'true'
+        env:
+          OWNER: ${{ github.repository_owner }}
+          NAME: ${{ github.event.repository.name }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rpm createrepo-c dpkg-dev apt-utils
+          pages_url="https://${OWNER,,}.github.io/$NAME"
+          rpm_base="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/"
+          bash src/packaging/build-repos.sh dist site "$pages_url" "$rpm_base"
+          echo "pages=true" >> "$GITHUB_OUTPUT"
+
       - name: Publish release
         run: |
           {
@@ -174,6 +208,7 @@ jobs:
               echo "$FALLBACK_MARKER"
             fi
             echo "- Runs on x86_64 distros with glibc 2.28 or newer"
+            echo "- Install via AppImage, \`dnf\`/\`zypper\` or \`apt\`: see the README"
             echo
             echo "Not affiliated with or endorsed by Mistral AI."
             echo
@@ -183,8 +218,30 @@ jobs:
           } > notes.md
           tag="v$VERSION"
           if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # drop packages from an earlier build of this version (e.g. a fallback build with release 0)
+            gh release view "$tag" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -E '\.(deb|rpm)$' |
+              while read -r a; do gh release delete-asset "$tag" "$a" -y -R "$GITHUB_REPOSITORY"; done
             gh release upload "$tag" dist/* --clobber -R "$GITHUB_REPOSITORY"
             gh release edit "$tag" --notes-file notes.md -R "$GITHUB_REPOSITORY"
           else
             gh release create "$tag" dist/* --title "Vibe $VERSION for Linux" --notes-file notes.md --latest -R "$GITHUB_REPOSITORY"
           fi
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.repos.outputs.pages == 'true'
+        with:
+          path: site
+
+  deploy-pages:
+    needs: publish
+    if: needs.publish.outputs.pages == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

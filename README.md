@@ -10,11 +10,22 @@ Windows installer until there is an official Linux build.
 
 | Distro | Command |
 |--------|---------|
-| Any distro (one-liner, no root) | `curl -fsSL https://raw.githubusercontent.com/pangramm/unofficial-vibe-desktop-linux/main/install.sh \| sh` |
-| Any distro (manual) | [AppImage from the latest release](../../releases/latest) |
-| Any distro ([Gear Lever](https://flathub.org/apps/it.mijorus.gearlever)) | Open the downloaded AppImage in Gear Lever; it picks up updates from this repo automatically |
+| Fedora / RHEL / Alma / Rocky 8+ | `curl -fsSL https://pangramm.github.io/unofficial-vibe-desktop-linux/install-rpm.sh \| sudo bash && sudo dnf install unofficial-vibe-desktop` |
+| openSUSE | `curl -fsSL https://pangramm.github.io/unofficial-vibe-desktop-linux/install-rpm.sh \| sudo bash && sudo zypper install unofficial-vibe-desktop` |
+| Debian 10+ / Ubuntu 20.04+ / Mint / Pop!_OS | `curl -fsSL https://pangramm.github.io/unofficial-vibe-desktop-linux/install-deb.sh \| sudo bash && sudo apt install unofficial-vibe-desktop` |
+| Any distro (AppImage, no root) | `curl -fsSL https://raw.githubusercontent.com/pangramm/unofficial-vibe-desktop-linux/main/install.sh \| sh` |
+| Any distro (manual) | [AppImage from the latest release](../../releases/latest), optionally managed by [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) |
 
-x86_64 only. The one-liner downloads the latest AppImage, verifies its SHA-256, installs it to
+x86_64 only, glibc 2.28 or newer (any distro from about 2019 on).
+
+**Packages (dnf / zypper / apt):** the setup script adds a GPG-signed repository
+([key](https://pangramm.github.io/unofficial-vibe-desktop-linux/gpg-key.asc)), so new versions arrive with your
+normal `sudo dnf upgrade` / `sudo zypper update` / `sudo apt upgrade`. The app is installed to
+`/opt/unofficial-vibe-desktop` with a `vibe-desktop` command and a menu entry. Uninstall with
+`sudo dnf remove unofficial-vibe-desktop` (or `apt remove`); remove the repository via
+`/etc/yum.repos.d/unofficial-vibe-desktop.repo`, `/etc/zypp/repos.d/…` or `/etc/apt/sources.list.d/unofficial-vibe-desktop.list`.
+
+**AppImage one-liner:** downloads the latest AppImage, verifies its SHA-256, installs it to
 `~/.local/share/unofficial-vibe-desktop/`, adds a `vibe-desktop` command and a menu entry, and registers the
 `lechat://` link handler. Run it again to update. To remove it, run the same command with `| sh -s -- --uninstall`
 (your settings in `~/.config/le-chat-desktop` are kept).
@@ -39,7 +50,9 @@ Needs FUSE (`fuse3`/`libfuse2`, standard on most desktops). Without FUSE:
 ## How it works
 
 A GitHub Action checks Mistral's update feed every three hours. When a new version appears it downloads the
-Windows installer, verifies its SHA-512 against the feed, runs [`build.sh`](build.sh) and publishes a release.
+Windows installer, verifies its SHA-512 against the feed, runs [`build.sh`](build.sh) and publishes a release with the
+AppImage, a `.deb` and a signed `.rpm`. The signed apt and dnf repositories are rebuilt and deployed to GitHub Pages
+([`packaging/build-repos.sh`](packaging/build-repos.sh)).
 
 The interesting part: Vibe's Electron main process ships as **V8 bytecode** (`.jsc`), not JavaScript, and V8
 bytecode only loads in the exact V8 build that produced it. Comparing the Windows build with the official

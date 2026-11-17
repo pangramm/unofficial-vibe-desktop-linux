@@ -225,3 +225,28 @@ TARGET="$OUT/Vibe-$VERSION-x86_64.AppImage"
 (cd "$OUT" && ARCH=x86_64 "$AIT" --appimage-extract-and-run --no-appstream ${UPDATE_INFO:+-u "$UPDATE_INFO"} "$APPDIR" "$TARGET" >/dev/null 2>&1)
 (cd "$OUT" && sha256sum "$(basename "$TARGET")" > "$(basename "$TARGET").sha256")
 log "Done: $TARGET"
+
+# ---------------------------------------------------------------- deb / rpm (optional)
+if [ "${PACKAGES:-0}" = 1 ]; then
+  log "Building .deb and .rpm"
+  NFPM_VERSION=2.49.0
+  NFPM="$WORK/nfpm"
+  [ -x "$NFPM" ] || curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz" | tar xz -C "$WORK" nfpm
+  STAGE="$WORK/pkgroot"; rm -rf "$STAGE"
+  cp -al "$APP" "$STAGE" 2>/dev/null || cp -a "$APP" "$STAGE"
+  rm -f "$STAGE/chrome-sandbox"
+  chmod -R go-w "$STAGE"
+  # Release 0 = built with a fallback backend, 1 = matching backend; so a later proper build upgrades.
+  if [ "$("$WORK/python/bin/python3" -I -c 'import importlib.metadata as m;print(m.version("mistral-vibe"))')" = "$VIBE_PY_VERSION" ]; then
+    PKG_RELEASE="${PKG_RELEASE:-1}"
+  else
+    PKG_RELEASE="${PKG_RELEASE:-0}"
+  fi
+  export PKG_VERSION="$VERSION" PKG_RELEASE APP_DIR="$STAGE" SANDBOX="$APP/chrome-sandbox" ICON="$APPDIR/vibe.png"
+  # nfpm does not expand variables in file paths, so render the config first.
+  python3 -I -c 'import os,re,sys; t=open(sys.argv[1]).read(); print(re.sub(r"\$\{(\w+)\}", lambda m: os.environ[m.group(1)], t))' \
+    "$HERE/packaging/nfpm.yaml" > "$WORK/nfpm.yaml"
+  (cd "$HERE" && for fmt in deb rpm; do "$NFPM" package -f "$WORK/nfpm.yaml" -p "$fmt" -t "$OUT/" >/dev/null; done)
+  rm -rf "$STAGE"
+  ls -la "$OUT"/*.deb "$OUT"/*.rpm
+fi

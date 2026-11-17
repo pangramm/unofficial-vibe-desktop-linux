@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Vibe
+Comment=Mistral Vibe Desktop (unofficial Linux build)
+Exec=/usr/bin/vibe-desktop %U
+Icon=unofficial-vibe-desktop
+Type=Application
+Categories=Development;
+MimeType=x-scheme-handler/lechat;
+StartupWMClass=le-chat-desktop
