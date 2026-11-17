@@ -6,26 +6,35 @@ Windows installer until there is an official Linux build.
 > **Not affiliated with or endorsed by Mistral AI.** All app code belongs to Mistral AI; this repository only
 > contains the scripts that repackage it. If Mistral asks for this to be taken down, it will be.
 
-## Install
+## Quick install
 
-Download `Vibe-X.Y.Z-x86_64.AppImage` from the [latest release](../../releases/latest), then:
+| Distro | Command |
+|--------|---------|
+| Any distro (one-liner, no root) | `curl -fsSL https://raw.githubusercontent.com/pangramm/unofficial-vibe-desktop-linux/main/install.sh \| sh` |
+| Any distro (manual) | [AppImage from the latest release](../../releases/latest) |
+| Any distro ([Gear Lever](https://flathub.org/apps/it.mijorus.gearlever)) | Open the downloaded AppImage in Gear Lever; it picks up updates from this repo automatically |
+
+x86_64 only. The one-liner downloads the latest AppImage, verifies its SHA-256, installs it to
+`~/.local/share/unofficial-vibe-desktop/`, adds a `vibe-desktop` command and a menu entry, and registers the
+`lechat://` link handler. Run it again to update. To remove it, run the same command with `| sh -s -- --uninstall`
+(your settings in `~/.config/le-chat-desktop` are kept).
+
+<details>
+<summary>Manual AppImage install</summary>
 
 ```bash
 chmod +x Vibe-*-x86_64.AppImage
 ./Vibe-*-x86_64.AppImage
+./Vibe-*-x86_64.AppImage --install-desktop-entry   # optional: menu entry + lechat:// handler
 ```
 
-Optional: add a menu entry and register the `lechat://` link handler:
+**Updates:** the AppImage carries update information, so Gear Lever, AppImageLauncher or `appimageupdatetool`
+can update it in place. The app's built-in updater has no Linux feed and does nothing.
 
-```bash
-./Vibe-*-x86_64.AppImage --install-desktop-entry
-```
-
-**Updates:** the AppImage carries update information, so [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever),
-AppImageLauncher or `appimageupdatetool` can update it in place. The app's built-in updater has no Linux feed and does nothing.
-
-Needs x86_64 and FUSE (`libfuse2`/`fuse3`, standard on most desktops). Without FUSE:
+Needs FUSE (`fuse3`/`libfuse2`, standard on most desktops). Without FUSE:
 `APPIMAGE_EXTRACT_AND_RUN=1 ./Vibe-*.AppImage`.
+
+</details>
 
 ## How it works
 

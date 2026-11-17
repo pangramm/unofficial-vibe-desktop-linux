@@ -204,7 +204,8 @@ if [ "$1" = "--install-desktop-entry" ]; then
   sed -e "s|^Exec=.*|Exec=\"${APPIMAGE:-$HERE/AppRun}\" %U|" -e 's|^Icon=.*|Icon=vibe-linux|' \
     "$HERE/vibe.desktop" > "$D/applications/vibe-linux.desktop"
   command -v update-desktop-database >/dev/null && update-desktop-database "$D/applications" >/dev/null 2>&1
-  command -v xdg-mime >/dev/null && xdg-mime default vibe-linux.desktop x-scheme-handler/lechat
+  mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}"
+  command -v xdg-mime >/dev/null && xdg-mime default vibe-linux.desktop x-scheme-handler/lechat 2>/dev/null
   echo "Installed $D/applications/vibe-linux.desktop"
   exit 0
 fi
