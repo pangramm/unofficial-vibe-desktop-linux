@@ -130,6 +130,7 @@ if ! uv pip install --python "$WORK/python/bin/python3" --break-system-packages 
   uv pip install --python "$WORK/python/bin/python3" --break-system-packages --no-cache mistral-vibe >/dev/null
 fi
 echo "backend: $("$WORK/python/bin/python3" -I -c 'import importlib.metadata as m;print(m.version("mistral-vibe"))')"
+echo "bundled_backend: $VIBE_PY_VERSION"
 rm -rf "$WORK/python/lib/python3.12/test" "$WORK/python/lib/python3.12/idlelib" "$WORK/python/lib/python3.12/tkinter" \
        "$WORK/python/lib/python3.12/ensurepip" "$WORK/python/include" "$WORK/python/share"
 "$WORK/python/bin/python3" -I -c 'from vibe.app_server.stdio import main'
