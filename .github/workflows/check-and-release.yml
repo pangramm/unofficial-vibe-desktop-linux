@@ -13,6 +13,9 @@ on:
         description: "Build even if the bundled mistral-vibe version is not on PyPI yet (release is rebuilt automatically once it is)"
         type: boolean
         default: false
+      backend_source_commit:
+        description: "Build the bundled backend version from this full mistralai/mistral-vibe commit SHA"
+        type: string
 
 permissions:
   contents: write
@@ -111,10 +114,31 @@ jobs:
           open("release-notes-upstream.md", "w").write(d.get("releaseNotes", "").replace("\r\n", "\n"))
           EOF
 
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        if: ${{ inputs.backend_source_commit != '' }}
+        with:
+          toolchain: stable
+
+      - name: Build matching backend from source
+        if: ${{ inputs.backend_source_commit != '' }}
+        shell: bash
+        env:
+          BACKEND_SOURCE_COMMIT: ${{ inputs.backend_source_commit }}
+          CARGO_BUILD_FLAGS: --no-default-features
+        run: |
+          [[ "$BACKEND_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          mkdir -p "$RUNNER_TEMP/backend-source" "$RUNNER_TEMP/backend-wheels"
+          curl -fsSL "https://codeload.github.com/mistralai/mistral-vibe/tar.gz/$BACKEND_SOURCE_COMMIT" |
+            tar -xz --strip-components=1 -C "$RUNNER_TEMP/backend-source"
+          cd "$RUNNER_TEMP/backend-source"
+          uv python install 3.12
+          uv build --python 3.12 --wheel --out-dir "$RUNNER_TEMP/backend-wheels"
+          echo "UV_FIND_LINKS=$RUNNER_TEMP/backend-wheels" >> "$GITHUB_ENV"
+
       - name: Build AppImage
         id: build
         env:
-          STRICT_BACKEND: ${{ inputs.allow_backend_fallback && '0' || '1' }}
+          STRICT_BACKEND: ${{ inputs.allow_backend_fallback && inputs.backend_source_commit == '' && '0' || '1' }}
           PACKAGES: "1"
           UPDATE_INFO: gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Vibe-*x86_64.AppImage.zsync
         run: |
@@ -123,6 +147,10 @@ jobs:
           rc=${PIPESTATUS[0]}
           set -e
           if [ "$rc" = 3 ]; then
+            if [ -n "${UV_FIND_LINKS:-}" ]; then
+              echo "::error::Could not install the matching backend from the source build."
+              exit 3
+            fi
             echo "::notice::The mistral-vibe backend bundled with Vibe $VERSION is not on PyPI yet. Retrying on the next scheduled run."
             echo "skipped=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -196,12 +224,17 @@ jobs:
           echo "pages=true" >> "$GITHUB_OUTPUT"
 
       - name: Publish release
+        env:
+          BACKEND_SOURCE_COMMIT: ${{ inputs.backend_source_commit }}
         run: |
           {
             echo "Unofficial Linux build of **Mistral Vibe Desktop $VERSION**, repackaged from the official Windows installer."
             echo
             if [ "$BACKEND" = "$BUNDLED" ]; then
               echo "- Backend: \`mistral-vibe $BACKEND\` (same as the official build)"
+              if [ -n "$BACKEND_SOURCE_COMMIT" ]; then
+                echo "  Built from [Mistral's source commit](https://github.com/mistralai/mistral-vibe/commit/$BACKEND_SOURCE_COMMIT)."
+              fi
             else
               echo "- Backend: \`mistral-vibe $BACKEND\`. The official build bundles $BUNDLED, which is not on PyPI yet;"
               echo "  this release is replaced automatically once it is."
