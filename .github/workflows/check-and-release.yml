@@ -1,0 +1,141 @@
+name: Check upstream & release
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Rebuild even if a release for this version exists"
+        type: boolean
+        default: false
+      allow_backend_fallback:
+        description: "Build even if the bundled mistral-vibe version is not on PyPI yet"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  BUCKET: https://storage.googleapis.com/mistralai-ci-desktop-app
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.upstream.outputs.version }}
+      build: ${{ steps.decide.outputs.build }}
+    steps:
+      - uses: astral-sh/setup-uv@v6
+      - name: Read upstream latest.yml
+        id: upstream
+        run: |
+          curl -fsSL "$BUCKET/latest.yml" -o latest.yml
+          uv run --no-project --with pyyaml python - <<'EOF' >> "$GITHUB_OUTPUT"
+          import re, yaml
+          d = yaml.safe_load(open("latest.yml"))
+          v = str(d["version"])
+          assert re.fullmatch(r"\d+\.\d+\.\d+", v), f"unexpected version string: {v!r}"
+          print(f"version={v}")
+          EOF
+          cat "$GITHUB_OUTPUT"
+      - name: Decide whether to build
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.upstream.outputs.version }}
+        run: |
+          if gh release view "v$VERSION" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 && [ "${{ inputs.force }}" != "true" ]; then
+            echo "Release v$VERSION already exists."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends p7zip-full build-essential python3 pkg-config \
+            libx11-dev libxi-dev libxfixes-dev libxkbfile-dev zsync \
+            libnss3 libgbm1 libgtk-3-0t64 libasound2t64 libxss1 libxtst6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Download and verify the official Windows installer
+        run: |
+          curl -fsSL "$BUCKET/latest.yml" -o latest.yml
+          uv run --no-project --with pyyaml python - <<'EOF'
+          import base64, hashlib, os, re, urllib.request, yaml
+          d = yaml.safe_load(open("latest.yml"))
+          assert str(d["version"]) == os.environ["VERSION"], "upstream moved on during the run"
+          f = d["files"][0]
+          assert re.fullmatch(r"vibe-\d+\.\d+\.\d+-setup\.exe", f["url"]), f"unexpected file name: {f['url']!r}"
+          url = os.environ["BUCKET"] + "/" + f["url"]
+          urllib.request.urlretrieve(url, "setup.exe")
+          h = base64.b64encode(hashlib.sha512(open("setup.exe", "rb").read()).digest()).decode()
+          assert h == f["sha512"], f"sha512 mismatch: {h}"
+          print("verified", f["url"])
+          open("release-notes-upstream.md", "w").write(d.get("releaseNotes", "").replace("\r\n", "\n"))
+          EOF
+
+      - name: Build AppImage
+        id: build
+        env:
+          STRICT_BACKEND: ${{ inputs.allow_backend_fallback && '0' || '1' }}
+          UPDATE_INFO: gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Vibe-*x86_64.AppImage.zsync
+        run: |
+          set +e
+          ./build.sh setup.exe 2>&1 | tee build.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" = 3 ]; then
+            echo "::notice::The mistral-vibe backend bundled with Vibe $VERSION is not on PyPI yet. Retrying on the next scheduled run."
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [ "$rc" = 0 ] || exit "$rc"
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+          echo "backend=$(sed -n 's/^backend: //p' build.log | tail -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        if: steps.build.outputs.skipped == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BACKEND: ${{ steps.build.outputs.backend }}
+        run: |
+          {
+            echo "Unofficial Linux build of **Mistral Vibe Desktop $VERSION**, repackaged from the official Windows installer."
+            echo
+            echo "- Backend: \`mistral-vibe $BACKEND\` (PyPI)"
+            echo "- Electron runtime: official Linux build of the same version"
+            echo
+            echo "Not affiliated with or endorsed by Mistral AI."
+            echo
+            echo "---"
+            echo
+            cat release-notes-upstream.md
+          } > notes.md
+          tag="v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" dist/* --title "Vibe $VERSION for Linux" --notes-file notes.md --latest
+          fi

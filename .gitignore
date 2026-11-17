@@ -1,0 +1,7 @@
+work/
+*.exe
+*.AppImage
+*.zsync
+*.log
+__pycache__/
+dist/
