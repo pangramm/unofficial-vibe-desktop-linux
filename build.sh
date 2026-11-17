@@ -251,6 +251,8 @@ if [ "${PACKAGES:-0}" = 1 ]; then
   # pacman wants pkgrel >= 1, so Arch gets release + 1 (fallback 1, proper build 2).
   PKG_RELEASE=$((PKG_RELEASE + 1)) render "$WORK/nfpm-arch.yaml"
   (cd "$HERE" && "$NFPM" package -f "$WORK/nfpm-arch.yaml" -p archlinux -t "$OUT/" >/dev/null)
+  # nfpm writes wrong modes/times into .MTREE, which `pacman -Qkk` reports; rewrite it from the tar headers.
+  python3 -I "$HERE/tools/fix-arch-mtree.py" "$OUT"/*.pkg.tar.zst
   rm -rf "$STAGE"
   ls -la "$OUT"/*.deb "$OUT"/*.rpm "$OUT"/*.pkg.tar.zst
 fi
