@@ -228,7 +228,7 @@ log "Done: $TARGET"
 
 # ---------------------------------------------------------------- deb / rpm (optional)
 if [ "${PACKAGES:-0}" = 1 ]; then
-  log "Building .deb and .rpm"
+  log "Building .deb, .rpm and Arch package"
   NFPM_VERSION=2.49.0
   NFPM="$WORK/nfpm"
   [ -x "$NFPM" ] || curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz" | tar xz -C "$WORK" nfpm
@@ -244,9 +244,13 @@ if [ "${PACKAGES:-0}" = 1 ]; then
   fi
   export PKG_VERSION="$VERSION" PKG_RELEASE APP_DIR="$STAGE" SANDBOX="$APP/chrome-sandbox" ICON="$APPDIR/vibe.png"
   # nfpm does not expand variables in file paths, so render the config first.
-  python3 -I -c 'import os,re,sys; t=open(sys.argv[1]).read(); print(re.sub(r"\$\{(\w+)\}", lambda m: os.environ[m.group(1)], t))' \
-    "$HERE/packaging/nfpm.yaml" > "$WORK/nfpm.yaml"
+  render() { python3 -I -c 'import os,re,sys; t=open(sys.argv[1]).read(); print(re.sub(r"\$\{(\w+)\}", lambda m: os.environ[m.group(1)], t))' \
+    "$HERE/packaging/nfpm.yaml" > "$1"; }
+  render "$WORK/nfpm.yaml"
   (cd "$HERE" && for fmt in deb rpm; do "$NFPM" package -f "$WORK/nfpm.yaml" -p "$fmt" -t "$OUT/" >/dev/null; done)
+  # pacman wants pkgrel >= 1, so Arch gets release + 1 (fallback 1, proper build 2).
+  PKG_RELEASE=$((PKG_RELEASE + 1)) render "$WORK/nfpm-arch.yaml"
+  (cd "$HERE" && "$NFPM" package -f "$WORK/nfpm-arch.yaml" -p archlinux -t "$OUT/" >/dev/null)
   rm -rf "$STAGE"
-  ls -la "$OUT"/*.deb "$OUT"/*.rpm
+  ls -la "$OUT"/*.deb "$OUT"/*.rpm "$OUT"/*.pkg.tar.zst
 fi

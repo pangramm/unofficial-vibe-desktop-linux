@@ -5,6 +5,7 @@
 #
 # Expects the signing key in the current GnuPG keyring (default key). Signs the .rpm in
 # <dist-dir> in place, so sign before uploading it to the release.
+#   arch: <site>/arch/x86_64/  signed .pkg.tar.zst + signed pacman database
 #   apt: <site>/deb/   flat repo: Packages, Release, InRelease, Release.gpg + the .deb
 #   dnf: <site>/rpm/   repodata only; packages are fetched from <rpm-download-base>
 #                      (the GitHub release) via xml:base, keeping the Pages site small.
@@ -45,10 +46,27 @@ rm -f "$SITE"/deb/amd64/*.deb; cp "$DEB" "$SITE/deb/amd64/"
   gpg --batch --yes --armor --detach-sign -o Release.gpg Release &&
   gpg --batch --yes --clearsign -o InRelease Release)
 
+# ---- pacman: signed package + signed database on Pages (pacman needs both under one Server URL)
+PKG="$(ls "$DIST"/*.pkg.tar.zst 2>/dev/null | head -1 || true)"
+if [ -n "$PKG" ]; then
+  A="$SITE/arch/x86_64"; rm -rf "$A"; mkdir -p "$A"
+  cp "$PKG" "$A/"; P="$A/$(basename "$PKG")"
+  gpg --batch --yes --no-armor --detach-sign -o "$P.sig" "$P"
+  (cd "$A" && repo-add -q unofficial-vibe-desktop.db.tar.gz "$(basename "$P")" >/dev/null)
+  for f in db files; do
+    gpg --batch --yes --no-armor --detach-sign -o "$A/unofficial-vibe-desktop.$f.tar.gz.sig" "$A/unofficial-vibe-desktop.$f.tar.gz"
+    # Pages does not serve symlinks; ship real copies under the names pacman requests.
+    rm -f "$A/unofficial-vibe-desktop.$f" "$A/unofficial-vibe-desktop.$f.sig"
+    cp "$A/unofficial-vibe-desktop.$f.tar.gz" "$A/unofficial-vibe-desktop.$f"
+    cp "$A/unofficial-vibe-desktop.$f.tar.gz.sig" "$A/unofficial-vibe-desktop.$f.sig"
+  done
+  rm -f "$A"/*.old "$A"/*.old.sig
+fi
+
 # ---- key, install scripts, landing page
 gpg --batch --armor --export "$KEY_ID" > "$SITE/gpg-key.asc"
-for s in install-deb.sh install-rpm.sh; do
-  sed "s|@PAGES_URL@|$PAGES_URL|g" "$HERE/$s" > "$SITE/$s"
+for s in install-deb.sh install-rpm.sh install-arch.sh; do
+  sed -e "s|@PAGES_URL@|$PAGES_URL|g" -e "s|@KEY_FPR@|$KEY_ID|g" "$HERE/$s" > "$SITE/$s"
 done
 cat > "$SITE/index.html" <<EOF
 <!doctype html><meta charset="utf-8"><title>Vibe Desktop for Linux (unofficial) - package repositories</title>
@@ -57,6 +75,9 @@ cat > "$SITE/index.html" <<EOF
 <pre>
 # Fedora / RHEL / openSUSE
 curl -fsSL $PAGES_URL/install-rpm.sh | sudo bash &amp;&amp; sudo dnf install unofficial-vibe-desktop
+
+# Arch / Manjaro / EndeavourOS
+curl -fsSL $PAGES_URL/install-arch.sh | sudo bash &amp;&amp; sudo pacman -Syu unofficial-vibe-desktop
 
 # Debian / Ubuntu / Mint
 curl -fsSL $PAGES_URL/install-deb.sh | sudo bash &amp;&amp; sudo apt install unofficial-vibe-desktop

@@ -35,6 +35,17 @@ overrides:
       - libXi.so.6()(64bit)
       - libXtst.so.6()(64bit)
       - xdg-utils
+  archlinux:
+    depends:
+      - gtk3
+      - nss
+      - alsa-lib
+      - mesa
+      - libxkbfile
+      - libxi
+      - libxtst
+      - xdg-utils
+      - hicolor-icon-theme
 
 contents:
   - src: ${APP_DIR}
@@ -63,3 +74,5 @@ rpm:
   compression: zstd
 deb:
   compression: zstd
+archlinux:
+  packager: pangramm <70115906+pangramm@users.noreply.github.com>

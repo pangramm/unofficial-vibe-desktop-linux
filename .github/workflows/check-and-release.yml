@@ -189,7 +189,7 @@ jobs:
           NAME: ${{ github.event.repository.name }}
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq rpm createrepo-c dpkg-dev apt-utils
+          sudo apt-get install -y -qq rpm createrepo-c dpkg-dev apt-utils pacman-package-manager libarchive-tools
           pages_url="https://${OWNER,,}.github.io/$NAME"
           rpm_base="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/"
           bash src/packaging/build-repos.sh dist site "$pages_url" "$rpm_base"
@@ -208,7 +208,7 @@ jobs:
               echo "$FALLBACK_MARKER"
             fi
             echo "- Runs on x86_64 distros with glibc 2.28 or newer"
-            echo "- Install via AppImage, \`dnf\`/\`zypper\` or \`apt\`: see the README"
+            echo "- Install via AppImage, \`dnf\`/\`zypper\`, \`pacman\` or \`apt\`: see the README"
             echo
             echo "Not affiliated with or endorsed by Mistral AI."
             echo
@@ -219,7 +219,7 @@ jobs:
           tag="v$VERSION"
           if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             # drop packages from an earlier build of this version (e.g. a fallback build with release 0)
-            gh release view "$tag" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -E '\.(deb|rpm)$' |
+            gh release view "$tag" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -E '\.(deb|rpm|pkg\.tar\.zst)$' |
               while read -r a; do gh release delete-asset "$tag" "$a" -y -R "$GITHUB_REPOSITORY"; done
             gh release upload "$tag" dist/* --clobber -R "$GITHUB_REPOSITORY"
             gh release edit "$tag" --notes-file notes.md -R "$GITHUB_REPOSITORY"
