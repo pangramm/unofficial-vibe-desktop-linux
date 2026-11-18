@@ -157,6 +157,10 @@ rm -rf "$R/app/out/main" && cp -a "$WORK/wconv" "$R/app/out/main"
 # Polyfill macOS/Windows-only Electron APIs before the bytecode runs.
 cp "$TOOLS/linux-shim.cjs" "$R/app/out/main/"
 grep -q 'linux-shim' "$R/app/out/main/index.js" || sed -i '1a require("./linux-shim.cjs");' "$R/app/out/main/index.js"
+# Keep actionable alerts clickable on Linux, where mouse-event forwarding is unavailable.
+if [ -f "$R/app/out/renderer/alert.html" ]; then
+  python3 -I "$TOOLS/fix-alert-click-through.py" "$R/app/out/renderer"
+fi
 N="$NAT/node_modules"
 mkdir -p "$R/app/node_modules/node-pty/build/Release" "$R/app/node_modules/native-keymap/build/Release" "$R/app/node_modules/keyspy/build"
 cp "$N/node-pty/build/Release/pty.node" "$R/app/node_modules/node-pty/build/Release/"
