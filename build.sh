@@ -4,8 +4,8 @@
 #   ./build.sh /path/to/vibe-X.Y.Z-setup.exe     # -> dist/Vibe-X.Y.Z-x86_64.AppImage
 #
 # How it works (see README.md for details):
-#   * The app's main process ships as V8 bytecode (.jsc). Bytecode from the Windows
-#     build only differs from what Linux Electron expects in its references into
+#   * Older releases ship the app's main process as V8 bytecode (.jsc). Windows
+#     bytecode only differs from what Linux Electron expects in its references into
 #     V8's read-only heap (Node's embedded snapshot orders its strings per build).
 #     tools/jscconv.py remaps those references, so the original code runs unchanged.
 #   * Native Node modules are rebuilt for Linux, the Python backend (mistral-vibe)
@@ -33,9 +33,14 @@ mkdir -p "$WORK/nsis" "$WORK/win"
 7z x -y -o"$WORK/nsis" "$EXE" '$PLUGINSDIR/app-64.7z' >/dev/null
 7z x -y -o"$WORK/win" "$WORK/nsis/\$PLUGINSDIR/app-64.7z" >/dev/null
 rm -rf "$WORK/nsis"
-# asar complains about unpacked files for other platforms (e.g. win32-arm64); ignore that.
-npx -y @electron/asar@3.2.17 extract "$WORK/win/resources/app.asar" "$WORK/wasar" >/dev/null 2>&1 || true
-[ -f "$WORK/wasar/out/main/desktop-main.jsc" ] || { echo "app.asar extraction failed" >&2; exit 1; }
+# asar extracts the app even when optional native files for other platforms are missing.
+npx -y @electron/asar@3.2.17 extract "$WORK/win/resources/app.asar" "$WORK/wasar" >"$WORK/asar.log" 2>&1 || true
+MAIN="$WORK/wasar/out/main"
+if [ ! -f "$MAIN/index.js" ] || { [ ! -f "$MAIN/desktop-main.js" ] && [ ! -f "$MAIN/desktop-main.jsc" ]; }; then
+  sed -n '1,12p' "$WORK/asar.log" >&2
+  echo "app.asar extraction failed: main process files are missing" >&2
+  exit 1
+fi
 VERSION="$(python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$WORK/wasar/package.json")"
 ELECTRON_VERSION="$(grep -aoE 'Electron/[0-9]+\.[0-9]+\.[0-9]+' "$WORK/win/Vibe.exe" | head -1 | cut -d/ -f2)"
 echo "Vibe $VERSION, Electron $ELECTRON_VERSION"
@@ -47,12 +52,12 @@ EZIP="$WORK/electron-v$ELECTRON_VERSION-linux-x64.zip"
 rm -rf "$WORK/electron" && mkdir -p "$WORK/electron" && (cd "$WORK/electron" && unzip -q "$EZIP")
 
 # ---------------------------------------------------------------- bytecode
-log "Converting V8 bytecode (Windows -> Linux)"
-rm -rf "$WORK/wconv" && cp -a "$WORK/wasar/out/main" "$WORK/wconv"
-mapfile -t JSC < <(find "$WORK/wconv" -name '*.jsc')
-python3 -I "$TOOLS/jscconv.py" --src-bin "$WORK/win/Vibe.exe" --dst-bin "$WORK/electron/electron" "${JSC[@]}"
-log "Verifying every bytecode file deserializes"
-cat > "$WORK/verify-jsc.js" <<'EOF'
+mapfile -t JSC < <(find "$MAIN" -type f -name '*.jsc')
+if [ "${#JSC[@]}" -gt 0 ]; then
+  log "Converting V8 bytecode (Windows -> Linux)"
+  python3 -I "$TOOLS/jscconv.py" --src-bin "$WORK/win/Vibe.exe" --dst-bin "$WORK/electron/electron" "${JSC[@]}"
+  log "Verifying every bytecode file deserializes"
+  cat > "$WORK/verify-jsc.js" <<'EOF'
 const v8=require('v8');v8.setFlagsFromString("--no-lazy");v8.setFlagsFromString("--no-flush-bytecode");
 const vm=require('vm'),fs=require('fs');
 const d=new vm.Script("",{produceCachedData:true}).createCachedData();
@@ -61,10 +66,11 @@ const len=f.readUInt32LE(8);
 const s=new vm.Script(len>1?'"'+"​".repeat(len-2)+'"':"",{cachedData:f});
 if(s.cachedDataRejected){console.error("REJECTED",process.argv[2]);process.exit(2)}
 EOF
-for f in "${JSC[@]}"; do
-  ELECTRON_RUN_AS_NODE=1 "$WORK/electron/electron" "$WORK/verify-jsc.js" "$f" || { echo "bytecode check failed: $f"; exit 1; }
-done
-echo "all ${#JSC[@]} bytecode files OK"
+  for f in "${JSC[@]}"; do
+    ELECTRON_RUN_AS_NODE=1 "$WORK/electron/electron" "$WORK/verify-jsc.js" "$f" || { echo "bytecode check failed: $f"; exit 1; }
+  done
+  echo "all ${#JSC[@]} bytecode files OK"
+fi
 
 # ---------------------------------------------------------------- headers
 HDR="$WORK/hdr"
@@ -153,8 +159,7 @@ APP="$APPDIR/usr/lib/vibe"
 cp -a "$WORK/electron" "$APP"; mv "$APP/electron" "$APP/vibe"
 R="$APP/resources"; rm -f "$R/default_app.asar"
 cp -a "$WORK/wasar" "$R/app"
-rm -rf "$R/app/out/main" && cp -a "$WORK/wconv" "$R/app/out/main"
-# Polyfill macOS/Windows-only Electron APIs before the bytecode runs.
+# Polyfill macOS/Windows-only Electron APIs before the main process code runs.
 cp "$TOOLS/linux-shim.cjs" "$R/app/out/main/"
 grep -q 'linux-shim' "$R/app/out/main/index.js" || sed -i '1a require("./linux-shim.cjs");' "$R/app/out/main/index.js"
 # Keep actionable alerts clickable on Linux, where mouse-event forwarding is unavailable.

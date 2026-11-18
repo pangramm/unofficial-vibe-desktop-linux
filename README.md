@@ -56,9 +56,9 @@ Windows installer, verifies its SHA-512 against the feed, runs [`build.sh`](buil
 AppImage, a `.deb` and a signed `.rpm`. The signed apt, dnf and pacman repositories are rebuilt and deployed to GitHub Pages
 ([`packaging/build-repos.sh`](packaging/build-repos.sh)).
 
-The interesting part: Vibe's Electron main process ships as **V8 bytecode** (`.jsc`), not JavaScript, and V8
-bytecode only loads in the exact V8 build that produced it. Comparing the Windows build with the official
-Linux build of the same Electron version shows that the bytecode differs in only one way: its references into
+Vibe 1.3.0 ships its Electron main process as JavaScript, which the build copies directly. Older releases ship
+**V8 bytecode** (`.jsc`), which only loads in the exact V8 build that produced it. Comparing the Windows build with
+the official Linux build of the same Electron version shows that the bytecode differs in its references into
 V8's **read-only heap**. Node's embedded startup snapshot orders its internalized strings differently per
 platform build (pages 7, 9 and 10). [`tools/jscconv.py`](tools/jscconv.py) parses the code-cache stream (V8 15.6
 serializer format), remaps every `ReadOnlyHeapRef` to the same object in the Linux snapshot by matching string

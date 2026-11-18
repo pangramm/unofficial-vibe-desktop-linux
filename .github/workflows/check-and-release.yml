@@ -137,6 +137,7 @@ jobs:
 
       - name: Build AppImage
         id: build
+        shell: bash
         env:
           STRICT_BACKEND: ${{ inputs.allow_backend_fallback && inputs.backend_source_commit == '' && '0' || '1' }}
           PACKAGES: "1"
