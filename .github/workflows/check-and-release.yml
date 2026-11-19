@@ -10,11 +10,14 @@ on:
         type: boolean
         default: false
       allow_backend_fallback:
-        description: "Build even if the bundled mistral-vibe version is not on PyPI yet (release is rebuilt automatically once it is)"
+        description: "Allow a compatible fallback if the bundled mistral-vibe version is unavailable on PyPI"
         type: boolean
         default: false
       backend_source_commit:
         description: "Build the bundled backend version from this full mistralai/mistral-vibe commit SHA"
+        type: string
+      package_release:
+        description: "Package revision for a rebuild of the same Desktop version (for example, 2)"
         type: string
 
 permissions:
@@ -133,7 +136,10 @@ jobs:
           cd "$RUNNER_TEMP/backend-source"
           uv python install 3.12
           uv build --python 3.12 --wheel --out-dir "$RUNNER_TEMP/backend-wheels"
-          echo "UV_FIND_LINKS=$RUNNER_TEMP/backend-wheels" >> "$GITHUB_ENV"
+          wheels=("$RUNNER_TEMP/backend-wheels/"*.whl)
+          [ "${#wheels[@]}" = 1 ]
+          [ -f "${wheels[0]}" ]
+          echo "BACKEND_WHEEL=${wheels[0]}" >> "$GITHUB_ENV"
 
       - name: Build AppImage
         id: build
@@ -141,17 +147,18 @@ jobs:
         env:
           STRICT_BACKEND: ${{ inputs.allow_backend_fallback && inputs.backend_source_commit == '' && '0' || '1' }}
           PACKAGES: "1"
+          PKG_RELEASE: ${{ inputs.package_release }}
           UPDATE_INFO: gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Vibe-*x86_64.AppImage.zsync
         run: |
+          if [ -n "$PKG_RELEASE" ] && ! [[ "$PKG_RELEASE" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::The package revision must be a positive integer."
+            exit 1
+          fi
           set +e
           ./build.sh setup.exe 2>&1 | tee build.log
           rc=${PIPESTATUS[0]}
           set -e
           if [ "$rc" = 3 ]; then
-            if [ -n "${UV_FIND_LINKS:-}" ]; then
-              echo "::error::Could not install the matching backend from the source build."
-              exit 3
-            fi
             echo "::notice::The mistral-vibe backend bundled with Vibe $VERSION is not on PyPI yet. Retrying on the next scheduled run."
             echo "skipped=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -232,7 +239,7 @@ jobs:
             echo "Unofficial Linux build of **Mistral Vibe Desktop $VERSION**, repackaged from the official Windows installer."
             echo
             if [ "$BACKEND" = "$BUNDLED" ]; then
-              echo "- Backend: \`mistral-vibe $BACKEND\` (same as the official build)"
+              echo "- Backend: \`mistral-vibe $BACKEND\` (version matches the official build)"
               if [ -n "$BACKEND_SOURCE_COMMIT" ]; then
                 echo "  Built from [Mistral's source commit](https://github.com/mistralai/mistral-vibe/commit/$BACKEND_SOURCE_COMMIT)."
               fi

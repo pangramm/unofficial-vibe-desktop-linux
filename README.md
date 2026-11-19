@@ -77,8 +77,9 @@ Everything else is swapped for Linux equivalents:
 | computer-use, mic-monitor, send-paste, audio helpers | dropped (Windows-only)                                     |
 | `systemPreferences.getMediaAccessStatus` & co. (macOS/Windows-only Electron APIs) | polyfilled by [`tools/linux-shim.cjs`](tools/linux-shim.cjs) |
 
-The backend version always matches the one bundled in the Windows build. Mistral publishes it on PyPI a few days
-after the desktop release, so a new version can appear here with that delay.
+Release builds normally pin the version bundled in the Windows build. Desktop 1.3.0 and later also require the
+Linux app server to pass a JSON-RPC contract check for `agents/list` and `runtime/read`, including the approval
+policy fields. The PyPI wheel for `mistral-vibe==3.1.3` lacks those fields despite matching the Windows version.
 
 ## Limitations
 
@@ -98,7 +99,9 @@ The installer is at `https://storage.googleapis.com/mistralai-ci-desktop-app/vib
 Requires `7z`, `node`/`npm`, `python3`, [`uv`](https://docs.astral.sh/uv/), `gcc`/`g++`/`make`, `curl`, `pkg-config`
 and the X11 headers for libxkbfile, libXi and libXfixes. If those headers are not installed, the script fetches them
 without root via `dnf download` / `apt-get download`. `STRICT_BACKEND=1` aborts instead of falling back to the newest
-`mistral-vibe` on PyPI when the bundled version is not published yet.
+`mistral-vibe` on PyPI when the bundled version is not published yet. The RPC check also applies to fallback builds.
+To test a wheel built from compatible upstream source, pass `BACKEND_WHEEL=/path/to/mistral_vibe-….whl`. The
+release workflow supports the same path through its `backend_source_commit` input.
 
 ## License
 

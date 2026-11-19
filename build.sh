@@ -130,12 +130,19 @@ rm -rf "$WORK/python" && cp -a "$PYROOT" "$WORK/python"
 rm -f "$WORK/python/lib/python3.12/EXTERNALLY-MANAGED"
 # PyPI sometimes lags behind the desktop release. STRICT_BACKEND=1 (e.g. in CI) fails instead
 # of falling back to the newest published mistral-vibe.
-if ! uv pip install --python "$WORK/python/bin/python3" --break-system-packages --no-cache "mistral-vibe==$VIBE_PY_VERSION" >/dev/null 2>&1; then
+if [ -n "${BACKEND_WHEEL:-}" ]; then
+  uv pip install --python "$WORK/python/bin/python3" --break-system-packages --no-cache "$BACKEND_WHEEL" >/dev/null
+elif ! uv pip install --python "$WORK/python/bin/python3" --break-system-packages --no-cache "mistral-vibe==$VIBE_PY_VERSION" >/dev/null 2>&1; then
   [ "${STRICT_BACKEND:-0}" = 1 ] && { echo "mistral-vibe==$VIBE_PY_VERSION not on PyPI yet" >&2; exit 3; }
   echo "WARNING: mistral-vibe $VIBE_PY_VERSION (bundled in the Windows build) is not on PyPI yet; using the newest published version."
   uv pip install --python "$WORK/python/bin/python3" --break-system-packages --no-cache mistral-vibe >/dev/null
 fi
-echo "backend: $("$WORK/python/bin/python3" -I -c 'import importlib.metadata as m;print(m.version("mistral-vibe"))')"
+BACKEND_VERSION="$("$WORK/python/bin/python3" -I -c 'import importlib.metadata as m;print(m.version("mistral-vibe"))')"
+if [ -n "${BACKEND_WHEEL:-}" ] && [ "$BACKEND_VERSION" != "$VIBE_PY_VERSION" ]; then
+  echo "Backend wheel has version $BACKEND_VERSION; Windows Desktop bundles $VIBE_PY_VERSION." >&2
+  exit 1
+fi
+echo "backend: $BACKEND_VERSION"
 echo "bundled_backend: $VIBE_PY_VERSION"
 rm -rf "$WORK/python/lib/python3.12/test" "$WORK/python/lib/python3.12/idlelib" "$WORK/python/lib/python3.12/tkinter" \
        "$WORK/python/lib/python3.12/ensurepip" "$WORK/python/include" "$WORK/python/share"
@@ -186,6 +193,10 @@ HERE="$(dirname "$(readlink -f "$0")")"
 exec "$HERE/python/bin/python3" -I -c 'import sys; from vibe.app_server.stdio import main; sys.argv[0] = "vibe-app-server"; sys.exit(main())' "$@"
 EOF
 chmod +x "$R/bin/vibe-app-server/vibe-app-server"
+if [ "$(printf '%s\n' 1.3.0 "$VERSION" | sort -V | head -1)" = 1.3.0 ]; then
+  log "Checking Desktop $VERSION Code RPC contract against mistral-vibe $BACKEND_VERSION"
+  "$WORK/python/bin/python3" -I "$TOOLS/check-backend-protocol.py" "$R/bin/vibe-app-server/vibe-app-server"
+fi
 for f in app-update.yml RELEASE_NOTES.md; do cp "$WORK/win/resources/$f" "$R/"; done
 cp "$WORK/win/resources/"*.png "$WORK/win/resources/"*.ico "$R/"
 
@@ -246,7 +257,7 @@ if [ "${PACKAGES:-0}" = 1 ]; then
   rm -f "$STAGE/chrome-sandbox"
   chmod -R go-w "$STAGE"
   # Release 0 = built with a fallback backend, 1 = matching backend; so a later proper build upgrades.
-  if [ "$("$WORK/python/bin/python3" -I -c 'import importlib.metadata as m;print(m.version("mistral-vibe"))')" = "$VIBE_PY_VERSION" ]; then
+  if [ "$BACKEND_VERSION" = "$VIBE_PY_VERSION" ]; then
     PKG_RELEASE="${PKG_RELEASE:-1}"
   else
     PKG_RELEASE="${PKG_RELEASE:-0}"
