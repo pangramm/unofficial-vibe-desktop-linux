@@ -79,7 +79,9 @@ Everything else is swapped for Linux equivalents:
 
 Release builds normally pin the version bundled in the Windows build. Desktop 1.3.0 and later also require the
 Linux app server to pass a JSON-RPC contract check for `agents/list` and `runtime/read`, including the approval
-policy fields. The PyPI wheel for `mistral-vibe==3.1.3` lacks those fields despite matching the Windows version.
+policy fields. For Desktop 1.3.0, the Linux launcher adapts the older approval-mode API in the PyPI
+`mistral-vibe==3.1.3` wheel. The picker shows the backend's available agent profiles, and policy changes use
+the backend's existing profile selection and validation.
 
 ## Limitations
 

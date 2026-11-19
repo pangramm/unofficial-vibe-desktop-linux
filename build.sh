@@ -186,16 +186,23 @@ mkdir -p "$R/bin/vibe-app-server"
 cp "$DL/rg" "$DL/agent-browser" "$NAT/key-server" "$R/bin/"
 cp -a "$WORK/win/resources/bin/rg-licenses" "$WORK/win/resources/bin/agent-browser-LICENSE" "$R/bin/"
 cp -a "$WORK/python" "$R/bin/vibe-app-server/python"
+if [ "$VERSION" = 1.3.0 ] && [ "$BACKEND_VERSION" = 3.1.3 ]; then
+  cp "$TOOLS/desktop-approval-compat.py" "$R/bin/vibe-app-server/"
+fi
 cat > "$R/bin/vibe-app-server/vibe-app-server" <<'EOF'
 #!/bin/sh
 # Linux port: run the mistral-vibe app server from the bundled Python.
 HERE="$(dirname "$(readlink -f "$0")")"
+if [ -f "$HERE/desktop-approval-compat.py" ]; then
+  exec "$HERE/python/bin/python3" -I "$HERE/desktop-approval-compat.py" "$@"
+fi
 exec "$HERE/python/bin/python3" -I -c 'import sys; from vibe.app_server.stdio import main; sys.argv[0] = "vibe-app-server"; sys.exit(main())' "$@"
 EOF
 chmod +x "$R/bin/vibe-app-server/vibe-app-server"
 if [ "$(printf '%s\n' 1.3.0 "$VERSION" | sort -V | head -1)" = 1.3.0 ]; then
   log "Checking Desktop $VERSION Code RPC contract against mistral-vibe $BACKEND_VERSION"
-  "$WORK/python/bin/python3" -I "$TOOLS/check-backend-protocol.py" "$R/bin/vibe-app-server/vibe-app-server"
+  "$WORK/python/bin/python3" -I "$TOOLS/check-backend-protocol.py" "$R/bin/vibe-app-server/vibe-app-server" \
+    --additional-builtin-plugin-root "$R/plugins/modules"
 fi
 for f in app-update.yml RELEASE_NOTES.md; do cp "$WORK/win/resources/$f" "$R/"; done
 cp "$WORK/win/resources/"*.png "$WORK/win/resources/"*.ico "$R/"

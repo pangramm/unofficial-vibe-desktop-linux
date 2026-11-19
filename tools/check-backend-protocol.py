@@ -33,26 +33,53 @@ def validate(value, schema, path):
         yield f"{path} must be {expected.__name__}"
 
 
-async def send(server, **message):
-    server.stdin.write((json.dumps({"jsonrpc": "2.0", **message}) + "\n").encode())
+async def send(server, channel, **message):
+    frame = {"channelId": channel, "message": {"jsonrpc": "2.0", **message}}
+    server.stdin.write((json.dumps(frame) + "\n").encode())
     await server.stdin.drain()
 
 
-async def request(server, method, params=None):
-    # Each method is called once, so the method name is also a unique request ID.
+async def request(server, channel, method, params=None, *, expected_error=None):
     try:
         async with asyncio.timeout(30):
-            await send(server, id=method, method=method, params=params or {})
+            await send(server, channel, id=method, method=method, params=params or {})
             while line := await server.stdout.readline():
-                response = json.loads(line)
+                frame = json.loads(line)
+                if frame["channelId"] != channel:
+                    continue
+                response = frame["message"]
+                if response is None:
+                    raise RuntimeError(f"{method}: app server closed channel ({frame.get('error')})")
                 if response.get("id") != method:
                     continue
-                if "error" in response:
-                    raise RuntimeError(f"{method} returned {response['error']}")
+                if error := response.get("error"):
+                    if error.get("code") == expected_error:
+                        return None
+                    raise RuntimeError(f"{method} returned {error}")
+                if expected_error is not None:
+                    raise RuntimeError(f"{method} accepted an unavailable approval policy")
                 return response["result"]
             raise RuntimeError(f"{method}: app server closed stdout")
     except TimeoutError as exc:
         raise RuntimeError(f"{method}: app server timed out") from exc
+
+
+async def initialize(server, channel):
+    await request(server, channel, "initialize", {
+        "clientInfo": {
+            "name": "desktop-build-check", "version": "1.0.0",
+            "terminalEmulator": "unknown",
+        },
+    })
+    await send(server, channel, method="initialized", params={})
+
+
+def check_active_policy(runtime, policy, errors, method):
+    errors.extend(validate(
+        runtime, {"runtime": {"activeAgent": AGENT, **CATALOGUE}}, method
+    ))
+    if not errors and runtime["runtime"]["activeApprovalPolicy"]["name"] != policy:
+        errors.append(f"{method}: expected the active approval policy to be {policy}")
 
 
 async def check(command, directory, errors):
@@ -62,6 +89,7 @@ async def check(command, directory, errors):
     vibe_home.mkdir(mode=0o700)
     (vibe_home / "config.toml").write_text(
         """active_model = "contract-probe"
+enable_auto_approve = false
 
 [[providers]]
 name = "contract-probe"
@@ -76,30 +104,42 @@ provider = "contract-probe"
     )
     env = {"PATH": os.defpath, "HOME": directory, "VIBE_HOME": str(vibe_home)}
     server = await asyncio.create_subprocess_exec(
-        *command, cwd=directory, env=env,
+        *command, "--multiplex", cwd=directory, env=env,
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
         limit=4 * 1024 * 1024,
     )
     try:
-        await request(server, "initialize", {
-            "clientInfo": {
-                "name": "desktop-build-check", "version": "1.0.0",
-                "terminalEmulator": "unknown",
-            },
-        })
-        await send(server, method="initialized", params={})
-        agents = await request(server, "agents/list")
+        await initialize(server, "1")
+        agents = await request(server, "1", "agents/list")
         errors.extend(validate(agents, {"active": AGENT, **CATALOGUE}, "agents/list"))
+        agent_config = {"cwd": directory, "trustWorkspace": True}
+        if not errors:
+            active_policy = agents["activeApprovalPolicy"]["name"]
+            policies = {policy["name"] for policy in agents["approvalPolicies"]}
+            if "auto-approve" in policies:
+                errors.append("agents/list advertised auto-approve despite the config disabling it")
+            selected_policy = min(policies - {active_policy}, default=active_policy)
+            agent_config["approvalPolicy"] = selected_policy
 
-        session = await request(server, "session/start", {
-            "agentConfig": {"cwd": directory, "trustWorkspace": True},
+        await initialize(server, "2")
+        session = await request(server, "2", "session/start", {
+            "agentConfig": agent_config,
             "kind": "ephemeral",
         })
         session_id = session["state"]["session"]["id"]
-        runtime = await request(server, "runtime/read", {"sessionId": session_id})
-        errors.extend(validate(
-            runtime, {"runtime": {"activeAgent": AGENT, **CATALOGUE}}, "runtime/read"
-        ))
+        params = {"sessionId": session_id}
+        runtime = await request(server, "2", "runtime/read", params)
+        check_active_policy(runtime, agent_config.get("approvalPolicy"), errors, "runtime/read")
+        if errors:
+            return
+
+        update = "session/approvalPolicy/update"
+        runtime = await request(server, "2", update, {**params, "approvalPolicy": active_policy})
+        check_active_policy(runtime, active_policy, errors, update)
+        await request(server, "2", update, {**params, "approvalPolicy": "auto-approve"},
+                      expected_error="invalid_params")
+        runtime = await request(server, "2", "runtime/read", params)
+        check_active_policy(runtime, active_policy, errors, "runtime/read after rejected update")
     finally:
         if server.returncode is None:
             try:
@@ -122,7 +162,7 @@ def main():
         for error in errors:
             print(f"  {error}", file=sys.stderr)
         return 1
-    print("Desktop app-server contract passed for agents/list and runtime/read.")
+    print("Desktop app-server contract passed for policy listing, session start, runtime read and policy changes.")
     return 0
 
 
