@@ -73,7 +73,8 @@ Everything else is swapped for Linux equivalents:
 | `node-pty`, `native-keymap` (win32)             | rebuilt against the Electron headers                            |
 | `koffi` (win32)                                 | `@koromix/koffi-linux-x64`                                      |
 | `key-server.exe`                                | keyspy's `X11KeyServer`, built from the bundled source          |
-| `rg.exe`, `agent-browser.exe`                   | Linux releases of the same versions                             |
+| `rg.exe`                                        | Linux ripgrep release                                           |
+| `agent-browser.exe` (when bundled upstream)      | Linux release of the same version                              |
 | computer-use, mic-monitor, send-paste, audio helpers | dropped (Windows-only)                                     |
 | `systemPreferences.getMediaAccessStatus` & co. (macOS/Windows-only Electron APIs) | polyfilled by [`tools/linux-shim.cjs`](tools/linux-shim.cjs) |
 

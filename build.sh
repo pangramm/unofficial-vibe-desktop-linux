@@ -149,12 +149,19 @@ rm -rf "$WORK/python/lib/python3.12/test" "$WORK/python/lib/python3.12/idlelib" 
 "$WORK/python/bin/python3" -I -c 'from vibe.app_server.stdio import main'
 
 # ---------------------------------------------------------------- helper binaries
-log "Fetching ripgrep and agent-browser for Linux"
+log "Fetching helper binaries for Linux"
 DL="$WORK/dl"; mkdir -p "$DL"
-AB_VERSION="$(grep -aoE 'agent-browser/[0-9]+\.[0-9]+\.[0-9]+' "$WORK/win/resources/bin/agent-browser.exe" | head -1 | cut -d/ -f2)"
-(cd "$DL" && rm -rf package && npm pack "agent-browser@$AB_VERSION" --silent >/dev/null &&
-  tar xzf "agent-browser-$AB_VERSION.tgz" package/bin/agent-browser-linux-x64 &&
-  mv package/bin/agent-browser-linux-x64 agent-browser && chmod +x agent-browser && rm -rf package)
+WIN_BIN="$WORK/win/resources/bin"
+# Newer installers omit the standalone browser helper.
+if [ -f "$WIN_BIN/agent-browser.exe" ]; then
+  AB_VERSION="$(LC_ALL=C grep -aoE 'agent-browser/[0-9]+\.[0-9]+\.[0-9]+' "$WIN_BIN/agent-browser.exe" | sed -n '1s|agent-browser/||p')" || {
+    echo "Could not read the agent-browser version from $WIN_BIN/agent-browser.exe" >&2
+    exit 1
+  }
+  (cd "$DL" && rm -rf package && npm pack "agent-browser@$AB_VERSION" --silent >/dev/null &&
+    tar xzf "agent-browser-$AB_VERSION.tgz" package/bin/agent-browser-linux-x64 &&
+    mv package/bin/agent-browser-linux-x64 agent-browser && chmod +x agent-browser && rm -rf package)
+fi
 RG_VERSION=15.2.0
 (cd "$DL" && curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/$RG_VERSION/ripgrep-$RG_VERSION-x86_64-unknown-linux-musl.tar.gz" | tar xz &&
   cp "ripgrep-$RG_VERSION-x86_64-unknown-linux-musl/rg" rg)
@@ -183,8 +190,11 @@ cp -a "$WORK/win/resources/app.asar.unpacked" "$R/"; rm -rf "$R/app.asar.unpacke
 mkdir -p "$R/plugins"
 cp -a "$WORK/win/resources/plugins/vibe-security" "$WORK/win/resources/plugins/modules" "$R/plugins/"  # computer-use is Windows-only
 mkdir -p "$R/bin/vibe-app-server"
-cp "$DL/rg" "$DL/agent-browser" "$NAT/key-server" "$R/bin/"
-cp -a "$WORK/win/resources/bin/rg-licenses" "$WORK/win/resources/bin/agent-browser-LICENSE" "$R/bin/"
+cp "$DL/rg" "$NAT/key-server" "$R/bin/"
+cp -a "$WIN_BIN/rg-licenses" "$R/bin/"
+if [ -f "$WIN_BIN/agent-browser.exe" ]; then
+  cp -a "$DL/agent-browser" "$WIN_BIN/agent-browser-LICENSE" "$R/bin/"
+fi
 cp -a "$WORK/python" "$R/bin/vibe-app-server/python"
 if [ "$VERSION" = 1.3.0 ] && [ "$BACKEND_VERSION" = 3.1.3 ]; then
   cp "$TOOLS/desktop-approval-compat.py" "$R/bin/vibe-app-server/"
